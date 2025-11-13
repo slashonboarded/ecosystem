@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Onboarded App, Keeping up with Team Holdings</title>
+  <style>table, th, td { border:1px solid #ccc; padding:8px; } th { background:#f0f0f0; }</style>
+</head>
+<body>
+  <h2>Live Team Holdings – <span id="ca"></span></h2>
+  <table id="tbl"></table>
+  <script>
+    const CA = "B1oEzGes1QxVZoxR3abiwAyL4jcPRF2s2ok5Yerrpump";
+    const WALLETS = ["CVPqDS8h6Vgtx3nHRVVZ49P5miFYLTjQiV8obtFcwmbd","64U9MukooWV5ziNXx2PCmZNmktBzQoKXnKsDBLvgCQ5g","4WdBom3zUF1pA3UisvVys8oM3VpDR1US72HbQf8uwYHE"];
+    document.getElementById("ca").textContent = CA;
+
+    async function load() {
+      const meta = await fetch(`https://api.solscan.io/token/meta?tokenAddress=${CA}`).then(r=>r.json());
+      const supply = meta.data.supply / 10**meta.data.decimals;
+      const price = meta.data.priceUsdt || 0;
+
+      const rows = [["Wallet","Balance","%","USD"]];
+      for (let w of WALLETS) {
+        const bal = await fetch(`https://api.solscan.io/account/tokens?account=${w}`)
+                    .then(r=>r.json())
+                    .then(d => d.data.find(t=>t.tokenAddress===CA)?.tokenAmount.uiAmount || 0);
+        const pct = (bal / supply);
+        const usd = bal * price;
+        rows.push([w, bal.toLocaleString(), (pct*100).toFixed(4)+"%", "$"+usd.toFixed(2)]);
+      }
+
+      const tbl = document.getElementById("tbl");
+      tbl.innerHTML = rows.map(r => `<tr><td>${r.join("</td><td>")}</td></tr>`).join("");
+    }
+
+    load();
+    setInterval(load, 30*1000); // refresh every 30s
+  </script>
+</body>
+</html>
