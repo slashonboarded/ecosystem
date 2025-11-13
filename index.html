@@ -78,15 +78,22 @@
 
     caSpan.textContent = CA;
 
+    // CORS Proxy for Solscan API
+    function proxyFetch(url) {
+      return fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`)
+        .then(res => res.json ? res.json() : res.text())
+        .catch(e => { throw new Error(`Proxy fetch failed: ${e.message}`); });
+    }
+
     async function load() {
       try {
         status.className = "loading";
         status.textContent = "Fetching live data...";
 
-        // Fetch token metadata
-        const metaRes = await fetch(`https://api.solscan.io/token/meta?tokenAddress=${CA}`);
-        if (!metaRes.ok) throw new Error("Token metadata failed");
-        const meta = await metaRes.json();
+        // Fetch token metadata via proxy
+        const metaUrl = `https://api.solscan.io/token/meta?tokenAddress=${CA}`;
+        const metaText = await proxyFetch(metaUrl);
+        const meta = typeof metaText === 'string' ? JSON.parse(metaText) : metaText;
         if (!meta.data) throw new Error("No token data");
 
         const supply = meta.data.supply / (10 ** meta.data.decimals);
@@ -95,9 +102,10 @@
         const rows = [];
         for (let w of WALLETS) {
           try {
-            const balRes = await fetch(`https://api.solscan.io/account/tokens?account=${w}`);
-            const balData = balRes.ok ? await balRes.json() : { data: [] };
-            const token = balData.data.find(t => t.tokenAddress === CA);
+            const balUrl = `https://api.solscan.io/account/tokens?account=${w}`;
+            const balText = await proxyFetch(balUrl);
+            const balData = typeof balText === 'string' ? JSON.parse(balText) : balText;
+            const token = balData.data?.find(t => t.tokenAddress === CA);
             const bal = token?.tokenAmount?.uiAmount || 0;
             const pct = supply > 0 ? (bal / supply) * 100 : 0;
             const usd = bal * price;
@@ -116,7 +124,7 @@
         // Render table
         tbody.innerHTML = rows.map(r => `<tr><td>${r.join("</td><td>")}</td></tr>`).join("");
         table.style.display = "table";
-        status.textContent = `Updated: ${new Date().toLocaleTimeString()}`;
+        status.innerHTML = `Updated: ${new Date().toLocaleTimeString()}`;
         status.className = "";
 
       } catch (err) {
