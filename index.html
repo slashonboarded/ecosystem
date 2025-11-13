@@ -3,141 +3,109 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Team Holdings – Live On-Chain Transparency</title>
+  <title>Team Holdings – Live On-Chain</title>
   <style>
     :root { --bg: #ffffff; --text: #000000; --th: #f0f0f0; --border: #ccc; }
     @media (prefers-color-scheme: dark) {
       :root { --bg: #1a1a1a; --text: #ffffff; --th: #2d2d2d; --border: #444; }
     }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-      background: var(--bg);
-      color: var(--text);
-      margin: 2rem;
-      line-height: 1.6;
-    }
+    body { font-family: system-ui, sans-serif; background: var(--bg); color: var(--text); margin: 2rem; }
     h2 { margin-bottom: 1rem; }
-    table {
-      width: 100%;
-      border-collapse: collapse;
-      margin: 1.5rem 0;
-      font-size: 0.95rem;
-      box-shadow: 0 1px 3px rgba(0,0,0,0.1);
-    }
-    th, td {
-      border: 1px solid var(--border);
-      padding: 10px 12px;
-      text-align: left;
-    }
-    th {
-      background: var(--th);
-      font-weight: 600;
-    }
-    tr:nth-child(even) { background: rgba(0,0,0,0.02); }
+    table { width: 100%; border-collapse: collapse; margin: 1.5rem 0; font-size: 0.95rem; }
+    th, td { border: 1px solid var(--border); padding: 10px 12px; text-align: left; }
+    th { background: var(--th); font-weight: 600; }
     .loading { color: #888; font-style: italic; }
     .error { color: #e74c3c; }
-    .footer {
-      margin-top: 2rem;
-      font-size: 0.8rem;
-      color: #666;
-    }
+    .footer { margin-top: 2rem; font-size: 0.8rem; color: #666; }
     a { color: #0066cc; text-decoration: none; }
     a:hover { text-decoration: underline; }
-    @media (max-width: 600px) {
-      table { font-size: 0.8rem; }
-      th, td { padding: 8px; }
-    }
   </style>
 </head>
 <body>
   <h2>Live Team Holdings – <span id="ca"></span></h2>
-  <div id="status" class="loading">Loading live data from Solana via Solscan...</div>
+  <div id="status" class="loading">Loading from Solana blockchain...</div>
   <table id="tbl" style="display:none;">
     <thead><tr><th>Wallet</th><th>Balance</th><th>% of Supply</th><th>USD Value</th></tr></thead>
     <tbody></tbody>
   </table>
 
   <div class="footer">
-    Data sourced from <a href="https://solscan.io" target="_blank">Solscan</a> • 
-    Token: <a href="https://solscan.io/token/B1oEzGes1QxVZoxR3abiwAyL4jcPRF2s2ok5Yerrpump" target="_blank">View on Solscan</a> • 
-    Updated every 30s
+    Data from Solana RPC + CoinGecko • 
+    <a href="https://explorer.solana.com/address/B1oEzGes1QxVZoxR3abiwAyL4jcPRF2s2ok5Yerrpump" target="_blank">View on Explorer</a>
   </div>
 
-  <script>
+  <script type="module">
+    import { Connection, PublicKey } from "https://cdn.jsdelivr.net/npm/@solana/web3.js@1.91.7/+esm";
+
     const CA = "B1oEzGes1QxVZoxR3abiwAyL4jcPRF2s2ok5Yerrpump";
     const WALLETS = [
       "CVPqDS8h6Vgtx3nHRVVZ49P5miFYLTjQiV8obtFcwmbd",
       "64U9MukooWV5ziNXx2PCmZNmktBzQoKXnKsDBLvgCQ5g",
-      "4WdBom3zUF1pA3UisvVys8oM3VpDRF1US72HbQf8uwYHE"
+      "4WdBom3zUF1pA3UisvVys8oM3VpDR1US72HbQf8uwYHE"
     ];
+
+    const connection = new Connection("https://api.mainnet-beta.solana.com");
+    const tokenMint = new PublicKey(CA);
 
     const caSpan = document.getElementById("ca");
     const status = document.getElementById("status");
-    const table = document.getElementById("tbl");
-    const tbody = table.querySelector("tbody");
+    const tbody = document.querySelector("#tbl tbody");
 
     caSpan.textContent = CA;
 
-    // Reliable CORS Proxy (Solscan-compatible)
-    function proxyFetch(url) {
-      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
-      return fetch(proxyUrl)
-        .then(res => {
-          if (!res.ok) throw new Error(`Proxy failed: ${res.status}`);
-          return res.text();
-        })
-        .then(text => {
-          try {
-            return JSON.parse(text);
-          } catch {
-            throw new Error("Invalid JSON from proxy");
-          }
-        });
+    async function getTokenSupply() {
+      const info = await connection.getTokenSupply(tokenMint);
+      return info.value.uiAmount;
+    }
+
+    async function getTokenBalance(wallet) {
+      const walletPubkey = new PublicKey(wallet);
+      const accounts = await connection.getTokenAccountsByOwner(walletPubkey, { mint: tokenMint });
+      if (accounts.value.length === 0) return 0;
+      const accountInfo = await connection.getTokenAccountBalance(accounts.value[0].pubkey);
+      return accountInfo.value.uiAmount;
+    }
+
+    async function getPrice() {
+      try {
+        const res = await fetch(`https://api.coingecko.com/api/v3/simple/token_price/solana?contract_addresses=${CA}&vs_currencies=usd`);
+        const data = await res.json();
+        return data[CA.toLowerCase()]?.usd || 0;
+      } catch {
+        return 0;
+      }
     }
 
     async function load() {
       try {
         status.className = "loading";
-        status.textContent = "Fetching live data...";
+        status.textContent = "Fetching from Solana...";
 
-        // Token metadata
-        const metaUrl = `https://api.solscan.io/token/meta?tokenAddress=${CA}`;
-        const meta = await proxyFetch(metaUrl);
-        if (!meta.data) throw new Error("No token data");
-
-        const supply = meta.data.supply / (10 ** meta.data.decimals);
-        const price = meta.data.priceUsdt || 0;
+        const [supply, price] = await Promise.all([getTokenSupply(), getPrice()]);
+        if (!supply) throw new Error("Token not found");
 
         const rows = [];
         for (let w of WALLETS) {
-          try {
-            const balUrl = `https://api.solscan.io/account/tokens?account=${w}`;
-            const balData = await proxyFetch(balUrl);
-            const token = balData.data?.find(t => t.tokenAddress === CA);
-            const bal = token?.tokenAmount?.uiAmount || 0;
-            const pct = supply > 0 ? (bal / supply) * 100 : 0;
-            const usd = bal * price;
+          const bal = await getTokenBalance(w);
+          const pct = supply > 0 ? (bal / supply) * 100 : 0;
+          const usd = bal * price;
 
-            rows.push([
-              `<a href="https://solscan.io/account/${w}" target="_blank">${w.slice(0,6)}...${w.slice(-4)}</a>`,
-              bal.toLocaleString(undefined, {maximumFractionDigits: 0}),
-              pct.toFixed(4) + "%",
-              usd > 0 ? "$" + usd.toFixed(2) : "$0.00"
-            ]);
-          } catch (e) {
-            rows.push([w.slice(0,6)+"..."+w.slice(-4), "Error", "—", "—"]);
-          }
+          rows.push([
+            `<a href="https://explorer.solana.com/address/${w}" target="_blank">${w.slice(0,6)}...${w.slice(-4)}</a>`,
+            bal.toLocaleString(undefined, {maximumFractionDigits: 0}),
+            pct.toFixed(4) + "%",
+893            usd > 0 ? "$" + usd.toFixed(2) : "$0.00"
+          ]);
         }
 
-        // Render
         tbody.innerHTML = rows.map(r => `<tr><td>${r.join("</td><td>")}</td></tr>`).join("");
-        table.style.display = "table";
+        document.getElementById("tbl").style.display = "table";
         status.textContent = `Updated: ${new Date().toLocaleTimeString()}`;
         status.className = "";
 
       } catch (err) {
         status.className = "error";
-        status.textContent = `Error: ${err.message}. Retrying...`;
+        status.textContent = `Error: ${err.message}`;
         console.error(err);
       }
     }
