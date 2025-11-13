@@ -68,7 +68,7 @@
     const WALLETS = [
       "CVPqDS8h6Vgtx3nHRVVZ49P5miFYLTjQiV8obtFcwmbd",
       "64U9MukooWV5ziNXx2PCmZNmktBzQoKXnKsDBLvgCQ5g",
-      "4WdBom3zUF1pA3UisvVys8oM3VpDR1US72HbQf8uwYHE"
+      "4WdBom3zUF1pA3UisvVys8oM3VpDRF1US72HbQf8uwYHE"
     ];
 
     const caSpan = document.getElementById("ca");
@@ -78,11 +78,21 @@
 
     caSpan.textContent = CA;
 
-    // CORS Proxy for Solscan API
+    // Reliable CORS Proxy (Solscan-compatible)
     function proxyFetch(url) {
-      return fetch(`https://api.allorigins.win/raw?url=${encodeURIComponent(url)}`)
-        .then(res => res.json ? res.json() : res.text())
-        .catch(e => { throw new Error(`Proxy fetch failed: ${e.message}`); });
+      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(url)}`;
+      return fetch(proxyUrl)
+        .then(res => {
+          if (!res.ok) throw new Error(`Proxy failed: ${res.status}`);
+          return res.text();
+        })
+        .then(text => {
+          try {
+            return JSON.parse(text);
+          } catch {
+            throw new Error("Invalid JSON from proxy");
+          }
+        });
     }
 
     async function load() {
@@ -90,10 +100,9 @@
         status.className = "loading";
         status.textContent = "Fetching live data...";
 
-        // Fetch token metadata via proxy
+        // Token metadata
         const metaUrl = `https://api.solscan.io/token/meta?tokenAddress=${CA}`;
-        const metaText = await proxyFetch(metaUrl);
-        const meta = typeof metaText === 'string' ? JSON.parse(metaText) : metaText;
+        const meta = await proxyFetch(metaUrl);
         if (!meta.data) throw new Error("No token data");
 
         const supply = meta.data.supply / (10 ** meta.data.decimals);
@@ -103,8 +112,7 @@
         for (let w of WALLETS) {
           try {
             const balUrl = `https://api.solscan.io/account/tokens?account=${w}`;
-            const balText = await proxyFetch(balUrl);
-            const balData = typeof balText === 'string' ? JSON.parse(balText) : balText;
+            const balData = await proxyFetch(balUrl);
             const token = balData.data?.find(t => t.tokenAddress === CA);
             const bal = token?.tokenAmount?.uiAmount || 0;
             const pct = supply > 0 ? (bal / supply) * 100 : 0;
@@ -121,10 +129,10 @@
           }
         }
 
-        // Render table
+        // Render
         tbody.innerHTML = rows.map(r => `<tr><td>${r.join("</td><td>")}</td></tr>`).join("");
         table.style.display = "table";
-        status.innerHTML = `Updated: ${new Date().toLocaleTimeString()}`;
+        status.textContent = `Updated: ${new Date().toLocaleTimeString()}`;
         status.className = "";
 
       } catch (err) {
@@ -134,7 +142,6 @@
       }
     }
 
-    // Initial load + auto-refresh
     load();
     setInterval(load, 30_000);
   </script>
